@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  scylladb:
+    image: scylladb/scylla
+    container_name: scylladb
+    restart: unless-stopped # restart if docker crashes or restarts, but not when stopped
+    expose:
+      - "9042" # expose cql to other containers
+    ports:
+      - "127.0.0.1:9042:9042" # expose cql to localhost
+    networks:
+      - internal 
+    volumes:
+      - scylla_data:/var/lib/scylla # data
+      - scylla_logs:/var/log/scylla # logs
+    command:
+      - --smp 1 # one cpu cores
+      - --memory 1G # scylla requires memory to be explicitly set
+      - --api-address 0.0.0.0 # listen on all interfaces
+      - --developer-mode=1 # disables prod safety checks
+  backend:
+    build: ./backend
+    container_name: backend
+    depends_on:
+      - scylladb # start scylladb before the go backend
+    networks:
+      - internal
+    environment:
+      - SCYLLA_HOST=scylladb # docker dns hostname for scylladb container
+      - PEPPER_SECRET=TEMP_CHANGEME_TEMP
+      - JWT_SECRET=TEMP_CHANGEME_TEMP
+    restart: on-failure # only restart on crash -> exit code not 0
+    expose:
+      - "8080" # expose http to other containers (nginx)
+  nginx:
+    image: nginx:stable-alpine
+    container_name: nginx
+    ports:
+      - "80:80" # http exposed to lan
+    depends_on:
+      - backend
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - internal
+      - public
+
+networks:
+  internal: # container to container networking
+    driver: bridge 
+  public:
+    driver: bridge
+
+volumes:
+  scylla_data:
+  scylla_logs:
