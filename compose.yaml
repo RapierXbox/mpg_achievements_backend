@@ -7,8 +7,6 @@ services:
     restart: unless-stopped # restart if docker crashes or restarts, but not when stopped
     expose:
       - "9042" # expose cql to other containers
-    ports:
-      - "127.0.0.1:9042:9042" # expose cql to localhost
     networks:
       - internal 
     volumes:
