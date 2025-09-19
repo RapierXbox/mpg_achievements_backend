@@ -51,6 +51,15 @@ func RunMigrations(session *gocql.Session, logger *log.Logger) error {
 		return fmt.Errorf("keyspace creation failed: %w", err)
 	}
 
+	createKeyspace = `CREATE KEYSPACE IF NOT EXISTS qr WITH replication = {
+		'class': 'SimpleStrategy',
+		'replication_factor': 1
+	}`
+
+	if err := session.Query(createKeyspace).Exec(); err != nil {
+		return fmt.Errorf("keyspace creation failed: %w", err)
+	}
+
 	// create tables
 	tables := []string{
 		// accounts table
@@ -58,18 +67,44 @@ func RunMigrations(session *gocql.Session, logger *log.Logger) error {
 			id UUID PRIMARY KEY,
 			email TEXT,
 			password_hash TEXT,
-			created_at TIMESTAMP
+			created_at TIMESTAMP,
+			admin BOOLEAN,
 		)`,
+
+		`CREATE INDEX IF NOT EXISTS idx_email ON auth.accounts(email);`,
 
 		// permanent sessions table
 		`CREATE TABLE IF NOT EXISTS auth.permanent_sessions (
 			user_id UUID,
-			device_id TEXT,
+			device_id UUID,
 			token_hash TEXT,
 			created_at TIMESTAMP,
 			last_used TIMESTAMP,
 			expires_at TIMESTAMP,
 			PRIMARY KEY (user_id, device_id)
+		)`,
+
+		// qr actions table
+		`CREATE TABLE IF NOT EXISTS qr.qr_actions (
+			id UUID PRIMARY KEY,
+			action_json TEXT,
+		)`,
+
+		// user qr scans table
+		`CREATE TABLE IF NOT EXISTS qr.user_qr_scans (
+			user_id UUID,
+			qr_code_id UUID,
+			count INT,
+			PRIMARY KEY (user_id, qr_code_id)
+		)`,
+
+		// qr codes table
+		`CREATE TABLE IF NOT EXISTS qr.qr_codes (
+			id UUID PRIMARY KEY,
+			action_id UUID,
+			qr_code_type INT,
+			max_usages INT,
+			expires_at TIMESTAMP
 		)`,
 	}
 

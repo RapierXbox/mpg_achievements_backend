@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/google/uuid"
+	"github.com/gocql/gocql"
 )
 
 // AccountHandler handles account-related HTTP requests
@@ -75,7 +75,7 @@ func (h *AccountHandler) ChangePassword(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// convert to UUID
-	uuid, err := uuid.Parse(userID)
+	uuid, err := gocql.ParseUUID(userID)
 	if err != nil {
 		respondError(w, "invalid user ID", http.StatusBadRequest)
 		return
@@ -97,21 +97,14 @@ func (h *AccountHandler) ChangePassword(w http.ResponseWriter, r *http.Request) 
 // Delete handles account deletion
 func (h *AccountHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	// get user ID from context
-	userID, ok := r.Context().Value("userID").(string)
+	userID, ok := r.Context().Value("userID").(gocql.UUID)
 	if !ok {
 		respondError(w, "authentication required", http.StatusUnauthorized)
 		return
 	}
 
-	// convert to UUID
-	uuid, err := uuid.Parse(userID)
-	if err != nil {
-		respondError(w, "invalid user ID", http.StatusBadRequest)
-		return
-	}
-
 	// delete account
-	if err := h.accountService.DeleteAccount(uuid); err != nil {
+	if err := h.accountService.DeleteAccount(userID); err != nil {
 		status := http.StatusInternalServerError
 		respondError(w, err.Error(), status)
 		return

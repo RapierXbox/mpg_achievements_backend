@@ -8,20 +8,22 @@ import (
 	"errors"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/gocql/gocql"
 )
 
 // AccountService handles business logic for user accounts
 type AccountService struct {
-	repo   *repository.AccountRepository
-	pepper string
+	account_repo *repository.AccountRepository
+	session_repo *repository.SessionRepository
+	pepper       string
 }
 
 // NewAccountService creates a new account service instance
-func NewAccountService(repo *repository.AccountRepository, pepper string) *AccountService {
+func NewAccountService(account_repo *repository.AccountRepository, session_repo *repository.SessionRepository, pepper string) *AccountService {
 	return &AccountService{
-		repo:   repo,
-		pepper: pepper,
+		account_repo: account_repo,
+		session_repo: session_repo,
+		pepper:       pepper,
 	}
 }
 
@@ -36,7 +38,7 @@ func (s *AccountService) RegisterAccount(email, password string) (*models.Accoun
 	}
 
 	// check if account exists
-	existing, err := s.repo.GetAccountByEmail(email)
+	existing, err := s.account_repo.GetAccountByEmail(email)
 	if err != nil {
 		return nil, err
 	}
@@ -50,16 +52,18 @@ func (s *AccountService) RegisterAccount(email, password string) (*models.Accoun
 		return nil, err
 	}
 
+	randomUUID, _ := gocql.RandomUUID() // ignoring error since it should never fail
+
 	// create account object
 	account := &models.Account{
-		ID:           uuid.New(),
+		ID:           randomUUID,
 		Email:        email,
 		PasswordHash: hash,
 		CreatedAt:    time.Now().UTC(),
 	}
 
 	// persist to database
-	if err := s.repo.CreateAccount(account); err != nil {
+	if err := s.account_repo.CreateAccount(account); err != nil {
 		return nil, err
 	}
 
@@ -69,7 +73,7 @@ func (s *AccountService) RegisterAccount(email, password string) (*models.Accoun
 // Authenticate verifies user credentials and returns account
 func (s *AccountService) Authenticate(email, password string) (*models.Account, error) {
 	// retrieve account
-	account, err := s.repo.GetAccountByEmail(email)
+	account, err := s.account_repo.GetAccountByEmail(email)
 	if err != nil || account == nil {
 		return nil, errors.New("invalid credentials - " + err.Error())
 	}
@@ -83,13 +87,13 @@ func (s *AccountService) Authenticate(email, password string) (*models.Account, 
 }
 
 // ChangePassword updates a user's password
-func (s *AccountService) ChangePassword(userID uuid.UUID, oldPassword, newPassword string) error {
+func (s *AccountService) ChangePassword(userID gocql.UUID, oldPassword, newPassword string) error {
 	if !utils.ValidatePassword(newPassword) {
 		return errors.New("password must be at least 8 characters and contain at least one number, one uppercase letter, one lowercase letter")
 	}
 
 	// retrieve account
-	account, err := s.repo.GetAccountByID(userID)
+	account, err := s.account_repo.GetAccountByID(userID)
 	if err != nil || account == nil {
 		return errors.New("account not found")
 	}
@@ -106,16 +110,26 @@ func (s *AccountService) ChangePassword(userID uuid.UUID, oldPassword, newPasswo
 	}
 
 	// update database
-	return s.repo.UpdatePassword(userID, newHash)
+	return s.account_repo.UpdatePassword(userID, newHash)
 }
 
 // ChangePassword updates a user's password
-func (s *AccountService) DeleteAccount(userID uuid.UUID) error {
+func (s *AccountService) DeleteAccount(userID gocql.UUID) error {
 	// retrieve account
-	account, err := s.repo.GetAccountByID(userID)
+	account, err := s.account_repo.GetAccountByID(userID)
 	if err != nil || account == nil {
 		return errors.New("account not found")
 	}
 
-	return s.repo.DeleteAccount(userID)
+	err = s.account_repo.DeleteAccount(userID)
+	if err != nil {
+		return errors.New("failed to delete account - " + err.Error())
+	}
+
+	err = s.session_repo.DeleteAllSessionsForUser(userID)
+	if err != nil {
+		return errors.New("failed to delete associated sessions - " + err.Error())
+	}
+
+	return nil
 }

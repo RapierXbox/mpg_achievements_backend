@@ -4,6 +4,8 @@ import (
 	"backend/pkg/config"
 
 	"net/http"
+
+	"github.com/gocql/gocql"
 )
 
 // Debughandler manages debug endpoints
@@ -21,7 +23,7 @@ func NewDebugHandler(cfg *config.Config) *DebugHandler {
 // simple endpoint to test auth
 func (h *DebugHandler) AuthDebug(w http.ResponseWriter, r *http.Request) {
 	// get user id from context
-	_, ok := r.Context().Value("userID").(string)
+	_, ok := r.Context().Value("userID").(gocql.UUID)
 	if !ok {
 		respondError(w, "authentication required", http.StatusUnauthorized)
 		return

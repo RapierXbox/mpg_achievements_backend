@@ -13,19 +13,16 @@ type SessionRepository struct {
 	session *gocql.Session
 }
 
-// creates a new session repository instance
 func NewSessionRepo(session *gocql.Session) *SessionRepository {
 	return &SessionRepository{session: session}
 }
 
-// CreateSession stores a new permanent session in the database
 func (r *SessionRepository) CreateSession(session *models.PermanentSession) error {
 	// use parameterized query to prevent sql injection
 	query := `INSERT INTO auth.permanent_sessions 
 		(user_id, device_id, token_hash, created_at, last_used, expires_at) 
 		VALUES (?, ?, ?, ?, ?, ?)`
 
-	// execute insert with session data
 	return r.session.Query(query,
 		session.UserID,
 		session.DeviceID,
@@ -36,35 +33,30 @@ func (r *SessionRepository) CreateSession(session *models.PermanentSession) erro
 	).Exec()
 }
 
-// GetSession retrieves a session by user id and device id
-func (r *SessionRepository) GetSession(userID, deviceID string) (*models.PermanentSession, error) {
+func (r *SessionRepository) GetSession(userID, deviceID gocql.UUID) (*models.PermanentSession, error) {
 	session := &models.PermanentSession{
 		UserID:   userID,
 		DeviceID: deviceID,
 	}
 
-	// select session data
 	query := `SELECT token_hash, expires_at 
 		FROM auth.permanent_sessions 
 		WHERE user_id = ? AND device_id = ? 
-		LIMIT 1 ALLOW FILTERING`
+		LIMIT 1`
 
-	// scan results into session object
 	err := r.session.Query(query, userID, deviceID).Scan(
 		&session.TokenHash,
 		&session.ExpiresAt,
 	)
 
 	if err == gocql.ErrNotFound {
-		return nil, nil // session not found
+		return nil, nil
 	}
 
 	return session, err
 }
 
-// RotateSessionToken updates a session with a new token hash
-func (r *SessionRepository) RotateSessionToken(userID, deviceID, newTokenHash string) error {
-	// update token hash and usage timestamps
+func (r *SessionRepository) RotateSessionToken(userID, deviceID gocql.UUID, newTokenHash string) error {
 	query := `UPDATE auth.permanent_sessions SET 
 		token_hash = ?,
 		last_used = ? 
@@ -78,9 +70,14 @@ func (r *SessionRepository) RotateSessionToken(userID, deviceID, newTokenHash st
 	).Exec()
 }
 
-// DeleteSession removes a session from the database
-func (r *SessionRepository) DeleteSession(userID, deviceID string) error {
+func (r *SessionRepository) DeleteSession(userID, deviceID gocql.UUID) error {
 	query := `DELETE FROM auth.permanent_sessions 
 		WHERE user_id = ? AND device_id = ?`
 	return r.session.Query(query, userID, deviceID).Exec()
+}
+
+func (r *SessionRepository) DeleteAllSessionsForUser(userID gocql.UUID) error {
+	query := `DELETE FROM auth.permanent_sessions 
+		WHERE user_id = ?`
+	return r.session.Query(query, userID).Exec()
 }

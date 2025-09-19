@@ -6,6 +6,8 @@ import (
 	"backend/pkg/utils"
 
 	"time"
+
+	"github.com/gocql/gocql"
 )
 
 // SessionService handles business logic for persistent sessions
@@ -25,7 +27,7 @@ func NewSessionService(repo *repository.SessionRepository, pepper string, tokenT
 }
 
 // CreatePermanentSession establishes a new device bound session
-func (s *SessionService) CreatePermanentSession(userID, deviceID, token string) error {
+func (s *SessionService) CreatePermanentSession(userID, deviceID gocql.UUID, token string) error {
 	// secure hash token before storage
 	hashedToken := utils.HashToken(token, s.pepper)
 
@@ -44,7 +46,7 @@ func (s *SessionService) CreatePermanentSession(userID, deviceID, token string) 
 }
 
 // ValidateSession checks if a session is valid and not expired
-func (s *SessionService) ValidateSession(userID, deviceID, token string) (bool, error) {
+func (s *SessionService) ValidateSession(userID, deviceID gocql.UUID, token string) (bool, error) {
 	// retrieve session from database
 	session, err := s.repo.GetSession(userID, deviceID)
 	if err != nil || session == nil {
@@ -61,7 +63,7 @@ func (s *SessionService) ValidateSession(userID, deviceID, token string) (bool, 
 }
 
 // CheckSession checks if a session is exist under the user and device id
-func (s *SessionService) CheckSession(userID, deviceID string) (bool, error) {
+func (s *SessionService) CheckSession(userID, deviceID gocql.UUID) (bool, error) {
 	session, err := s.repo.GetSession(userID, deviceID)
 	if err != nil {
 		return false, err
@@ -73,7 +75,7 @@ func (s *SessionService) CheckSession(userID, deviceID string) (bool, error) {
 }
 
 // RotateSession updates a session with new credentials
-func (s *SessionService) RotateSession(userID, deviceID, oldToken, newToken string) error {
+func (s *SessionService) RotateSession(userID, deviceID gocql.UUID, oldToken, newToken string) error {
 	// validate existing token
 	valid, err := s.ValidateSession(userID, deviceID, oldToken)
 	if err != nil || !valid {
@@ -88,6 +90,10 @@ func (s *SessionService) RotateSession(userID, deviceID, oldToken, newToken stri
 }
 
 // DeleteSession removes a session from the database
-func (s *SessionService) DeleteSession(userID, deviceID string) error {
+func (s *SessionService) DeleteSession(userID, deviceID gocql.UUID) error {
 	return s.repo.DeleteSession(userID, deviceID)
+}
+
+func (s *SessionService) DeleteAllSessionsForUser(userID gocql.UUID) error {
+	return s.repo.DeleteAllSessionsForUser(userID)
 }

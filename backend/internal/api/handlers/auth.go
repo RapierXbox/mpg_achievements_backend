@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/gocql/gocql"
 )
 
 // AuthHandler manages authentication endpoints
@@ -60,13 +62,19 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	device_id_parsed, err := gocql.ParseUUID(req.DeviceID)
+	if err != nil {
+		respondError(w, "invalid device ID - "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	// create persistent session
 	if err := h.sessionService.CreatePermanentSession(
-		user.ID.String(),
-		req.DeviceID,
+		user.ID,
+		device_id_parsed,
 		refreshToken,
 	); err != nil {
-		respondError(w, "session creation failed", http.StatusInternalServerError)
+		respondError(w, "session creation failed - "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -82,9 +90,9 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 // SilentLogin refreshes tokens using existing session
 func (h *AuthHandler) SilentLogin(w http.ResponseWriter, r *http.Request) {
 	// extract device ID from header
-	deviceID := r.Header.Get("X-Device-ID")
-	if deviceID == "" {
-		respondError(w, "device ID required", http.StatusBadRequest)
+	deviceID, err := gocql.ParseUUID(r.Header.Get("X-Device-ID"))
+	if err != nil {
+		respondError(w, "invalid device ID - "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -102,7 +110,11 @@ func (h *AuthHandler) SilentLogin(w http.ResponseWriter, r *http.Request) {
 		respondError(w, "Invalid token", http.StatusForbidden)
 		return
 	}
-	userID := claims["sub"].(string)
+	userID, err := gocql.ParseUUID(claims["sub"].(string))
+	if err != nil {
+		respondError(w, "invalid user claim", http.StatusForbidden)
+		return
+	}
 
 	// validate session and device binding
 	valid, err := h.sessionService.ValidateSession(userID, deviceID, token)
@@ -113,7 +125,7 @@ func (h *AuthHandler) SilentLogin(w http.ResponseWriter, r *http.Request) {
 
 	// generate new token pair
 	newAccessToken, newRefreshToken, err := utils.GenerateTokenPair(
-		userID,
+		userID.String(),
 		[]byte(h.cfg.JWTSecret),
 		time.Duration(h.cfg.AccessTokenTTL)*time.Minute,
 		time.Duration(h.cfg.RefreshTokenTTL)*24*time.Hour,
@@ -144,16 +156,16 @@ func (h *AuthHandler) SilentLogin(w http.ResponseWriter, r *http.Request) {
 
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	// Get user id from context
-	userID, ok := r.Context().Value("userID").(string)
+	userID, ok := r.Context().Value("userID").(gocql.UUID)
 	if !ok {
 		respondError(w, "authentication required", http.StatusUnauthorized)
 		return
 	}
 
 	// get device id from header
-	deviceID := r.Header.Get("X-Device-ID")
-	if deviceID == "" {
-		respondError(w, "device ID required", http.StatusBadRequest)
+	deviceID, err := gocql.ParseUUID(r.Header.Get("X-Device-ID"))
+	if err != nil {
+		respondError(w, "invalid device ID - "+err.Error(), http.StatusBadRequest)
 		return
 	}
 

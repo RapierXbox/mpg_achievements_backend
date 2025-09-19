@@ -8,6 +8,8 @@ import (
 	"context"
 	"net/http"
 	"strings"
+
+	"github.com/gocql/gocql"
 )
 
 // AuthMiddleware validates jwts and injects user context
@@ -44,15 +46,15 @@ func AuthMiddleware(cfg *config.Config, sessionService *service.SessionService) 
 				}
 
 				// extract user ID from claims
-				userID, ok := claims["sub"].(string)
-				if !ok {
+				userID, err := gocql.ParseUUID(claims["sub"].(string))
+				if err != nil {
 					http.Error(w, "invalid user claim", http.StatusForbidden)
 					return
 				}
 
-				deviceID := r.Header.Get("X-Device-ID")
-				if deviceID == "" {
-					http.Error(w, "device ID header required", http.StatusBadRequest)
+				deviceID, err := gocql.ParseUUID(r.Header.Get("X-Device-ID"))
+				if err != nil {
+					http.Error(w, "invalid device ID - "+err.Error(), http.StatusBadRequest)
 					return
 				}
 

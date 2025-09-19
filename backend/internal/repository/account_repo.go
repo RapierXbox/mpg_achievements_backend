@@ -4,10 +4,8 @@ import (
 	"backend/internal/models"
 
 	"errors"
-	"fmt"
 
 	"github.com/gocql/gocql"
-	"github.com/google/uuid"
 )
 
 // AccountRepository handles database operations for user accounts
@@ -15,28 +13,21 @@ type AccountRepository struct {
 	session *gocql.Session
 }
 
-// NewAccountRepo creates a new account repository instance
 func NewAccountRepo(session *gocql.Session) *AccountRepository {
 	return &AccountRepository{session: session}
 }
 
-// CreateAccount inserts a new user account into the database
 func (r *AccountRepository) CreateAccount(account *models.Account) error {
 	// use lightweight transaction to ensure email uniqueness
-	query := `INSERT INTO auth.accounts (id, email, password_hash, created_at) VALUES (?, ?, ?, ?) IF NOT EXISTS`
-
-	// convert uuid to bytes for proper scylladb marshaling
-	idBytes, err := account.ID.MarshalBinary()
-	if err != nil {
-		return fmt.Errorf("failed to marshal UUID: %w", err)
-	}
+	query := `INSERT INTO auth.accounts (id, email, password_hash, created_at, admin) VALUES (?, ?, ?, ?, ?) IF NOT EXISTS`
 
 	m := make(map[string]interface{})
 	applied, err := r.session.Query(query,
-		idBytes,
+		account.ID,
 		account.Email,
 		account.PasswordHash,
 		account.CreatedAt,
+		account.Admin,
 	).MapScanCAS(m) // check if applied
 
 	if err != nil {
@@ -49,21 +40,18 @@ func (r *AccountRepository) CreateAccount(account *models.Account) error {
 	return nil
 }
 
-// GetAccountByEmail retrieves an account by email address
 func (r *AccountRepository) GetAccountByEmail(email string) (*models.Account, error) {
-	var (
-		idBytes []byte
-		account models.Account
-	)
+	var account models.Account
 
 	// consistancy level LocalQuorum for stronger consistency (doesnt matter on a single node)
-	query := r.session.Query(`SELECT id, email, password_hash, created_at FROM auth.accounts WHERE email = ? LIMIT 1 ALLOW FILTERING`, email).Consistency(gocql.LocalQuorum)
+	query := r.session.Query(`SELECT id, email, password_hash, created_at, admin FROM auth.accounts WHERE email = ? LIMIT 1`, email).Consistency(gocql.LocalQuorum)
 
 	err := query.Scan(
-		&idBytes,
+		&account.ID,
 		&account.Email,
 		&account.PasswordHash,
 		&account.CreatedAt,
+		&account.Admin,
 	)
 
 	if err == gocql.ErrNotFound {
@@ -72,25 +60,21 @@ func (r *AccountRepository) GetAccountByEmail(email string) (*models.Account, er
 		return nil, err
 	}
 
-	account.ID, err = uuid.FromBytes(idBytes)
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert uuid: %w", err)
-	}
 	return &account, err
 }
 
-// GetAccountByID retrieves an account by user ID
-func (r *AccountRepository) GetAccountByID(id uuid.UUID) (*models.Account, error) {
+func (r *AccountRepository) GetAccountByID(id gocql.UUID) (*models.Account, error) {
 	var account models.Account
 
 	// ref. GetAccountByEmail
-	query := r.session.Query(`SELECT id, email, password_hash, created_at FROM auth.accounts WHERE id = ? LIMIT 1 ALLOW FILTERING`, id).Consistency(gocql.LocalQuorum)
+	query := r.session.Query(`SELECT id, email, password_hash, created_at, admin FROM auth.accounts WHERE id = ? LIMIT 1`, id).Consistency(gocql.LocalQuorum)
 
 	err := query.Scan(
 		&account.ID,
 		&account.Email,
 		&account.PasswordHash,
 		&account.CreatedAt,
+		&account.Admin,
 	)
 
 	if err == gocql.ErrNotFound {
@@ -99,15 +83,13 @@ func (r *AccountRepository) GetAccountByID(id uuid.UUID) (*models.Account, error
 	return &account, err
 }
 
-// UpdatePassword changes a user's password hash
-func (r *AccountRepository) UpdatePassword(userID uuid.UUID, newHash string) error {
+func (r *AccountRepository) UpdatePassword(userID gocql.UUID, newHash string) error {
 	return r.session.Query(`UPDATE auth.accounts SET password_hash = ? WHERE id = ?`,
 		newHash, userID,
 	).Exec()
 }
 
-// DeleteAccount removes a account from the database
-func (r *AccountRepository) DeleteAccount(userID uuid.UUID) error {
+func (r *AccountRepository) DeleteAccount(userID gocql.UUID) error {
 	query := `DELETE FROM auth.accounts WHERE id = ?`
 	return r.session.Query(query, userID).Exec()
 }
