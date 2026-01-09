@@ -11,8 +11,8 @@ services:
       - scylla_data:/var/lib/scylla # data
       - scylla_logs:/var/log/scylla # logs
     command:
-      - --smp 1 # one cpu cores
-      - --memory 1G # scylla requires memory to be explicitly set
+      - --smp 4 # cpu cores
+      - --memory 4G # scylla requires memory to be explicitly set
       - --api-address 0.0.0.0 # listen on all interfaces
       - --developer-mode=1 # disables prod safety checks
   backend:
@@ -22,6 +22,7 @@ services:
       - scylladb # start scylladb before the go backend
     networks:
       - internal
+      - public
     environment:
       - SCYLLA_HOST=scylladb # docker dns hostname for scylladb container
       - PEPPER_SECRET=TEMP_CHANGEME_TEMP
@@ -29,6 +30,9 @@ services:
     restart: on-failure # only restart on crash -> exit code not 0
     expose:
       - "8080" # expose http to other containers (nginx)
+    ports:
+      - "9000:9000/tcp" # tcp game traffic
+      - "9001:9001/udp" # udp game traffic
   nginx:
     image: nginx:stable-alpine
     container_name: nginx

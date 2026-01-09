@@ -65,19 +65,19 @@ func (h *QRCodeManagementHandler) AddQRCode(w http.ResponseWriter, r *http.Reque
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request format", http.StatusBadRequest)
+		http.Error(w, "invalid request format - "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	action_id, err := gocql.ParseUUID(req.ActionID)
 	if err != nil {
-		respondError(w, "invalid action_id", http.StatusBadRequest)
+		respondError(w, "invalid action_id - "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	qr_action, err := h.qr_service.GetQRActionById(action_id)
 	if err != nil || qr_action == nil {
-		respondError(w, "could not find qr action for given action_id", http.StatusBadRequest)
+		respondError(w, "could not find qr action for given action_id - "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -103,7 +103,7 @@ func (h *QRCodeManagementHandler) AddQRAction(w http.ResponseWriter, r *http.Req
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request format", http.StatusBadRequest)
+		http.Error(w, "invalid request format - "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -125,15 +125,15 @@ func (h *QRCodeManagementHandler) DeleteQRCode(w http.ResponseWriter, r *http.Re
 	}
 
 	var req struct {
-		QrCodeId string `json:"qr_code_id"`
+		QrCodeID string `json:"qr_code_id"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request format", http.StatusBadRequest)
+		http.Error(w, "invalid request format - "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	qr_code_id, err := gocql.ParseUUID(req.QrCodeId)
+	qr_code_id, err := gocql.ParseUUID(req.QrCodeID)
 	if err != nil {
 		respondError(w, "invalid qr_code_id - "+err.Error(), http.StatusBadRequest)
 		return
@@ -156,15 +156,15 @@ func (h *QRCodeManagementHandler) DeleteQRAction(w http.ResponseWriter, r *http.
 	}
 
 	var req struct {
-		QrActionId string `json:"qr_action_id"`
+		QrActionID string `json:"qr_action_id"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request format", http.StatusBadRequest)
+		http.Error(w, "invalid request format - "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	qr_action_id, err := gocql.ParseUUID(req.QrActionId)
+	qr_action_id, err := gocql.ParseUUID(req.QrActionID)
 	if err != nil {
 		respondError(w, "invalid qr_action_id - "+err.Error(), http.StatusBadRequest)
 		return
@@ -222,7 +222,7 @@ func (h *QRCodeManagementHandler) GetAllQRCodes(w http.ResponseWriter, r *http.R
 
 	max_count, err := strconv.Atoi(r.URL.Query().Get("count"))
 	if err != nil {
-		respondError(w, "invalid count", http.StatusBadRequest)
+		respondError(w, "invalid count - "+err.Error(), http.StatusBadRequest)
 		return
 	}
 

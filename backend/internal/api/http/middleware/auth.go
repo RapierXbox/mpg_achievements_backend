@@ -48,7 +48,7 @@ func AuthMiddleware(cfg *config.Config, sessionService *service.SessionService) 
 				// extract user ID from claims
 				userID, err := gocql.ParseUUID(claims["sub"].(string))
 				if err != nil {
-					http.Error(w, "invalid user claim", http.StatusForbidden)
+					http.Error(w, "invalid user claim - "+err.Error(), http.StatusForbidden)
 					return
 				}
 

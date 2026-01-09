@@ -39,7 +39,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request format", http.StatusBadRequest)
+		http.Error(w, "invalid request format - "+err.Error(), http.StatusBadRequest)
 		return
 	}
 

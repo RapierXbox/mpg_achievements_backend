@@ -39,7 +39,7 @@ func (s *QRService) AddQRCode(action_id gocql.UUID, qr_code_type models.QRCodeUs
 
 	qr_code := &models.QRCode{
 		ID:         randomUUID,
-		ActionId:   action_id,
+		ActionID:   action_id,
 		QrCodeType: qr_code_type,
 		MaxUsages:  max_usages,
 		ExpiresAt:  expires_at,
@@ -72,8 +72,8 @@ func (s *QRService) GetActionJsonFromQRCodeId(qr_code_id, user_id gocql.UUID) (s
 	qr_scan, err := s.scan_repo.GetUserQrScanByID(user_id, qr_code_id)
 	if err == gocql.ErrNotFound {
 		qr_scan = &models.UserQRScan{
-			UserId:   user_id,
-			QrCodeId: qr_code.ID,
+			UserID:   user_id,
+			QrCodeID: qr_code.ID,
 			Count:    0,
 		}
 		err = s.scan_repo.CreateUserQRScan(qr_scan)
@@ -100,7 +100,7 @@ func (s *QRService) GetActionJsonFromQRCodeId(qr_code_id, user_id gocql.UUID) (s
 		}
 	}
 
-	qr_action, err := s.action_repo.GetQRActionByID(qr_code.ActionId)
+	qr_action, err := s.action_repo.GetQRActionByID(qr_code.ActionID)
 	if err != nil || qr_action == nil {
 		return "", errors.New("this action doesnt exist - " + err.Error())
 	}

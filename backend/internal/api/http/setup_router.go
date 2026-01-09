@@ -1,8 +1,9 @@
-package api
+package api_http
 
 import (
-	"backend/internal/api/handlers"
-	"backend/internal/api/middleware"
+	"backend/internal/api/http/handlers"
+	"backend/internal/api/http/middleware"
+	"backend/internal/game"
 	"backend/internal/repository"
 	"backend/internal/service"
 	"backend/pkg/config"
@@ -16,7 +17,7 @@ import (
 )
 
 // SetupRouter configures all application routes
-func SetupRouter(session *gocql.Session, cfg *config.Config, logger *log.Logger) *mux.Router {
+func SetupRouter(session *gocql.Session, cfg *config.Config, logger *log.Logger, gameManager *game.Manager) (*mux.Router, *service.SessionService) {
 	router := mux.NewRouter()
 
 	// initialize repositories (database access)
@@ -38,6 +39,8 @@ func SetupRouter(session *gocql.Session, cfg *config.Config, logger *log.Logger)
 
 	qrCodeHandler := handlers.NewQRCodeHandler(qrService)
 	qrCodeManagementHandler := handlers.NewQRCodeManagementHandler(qrService, accountRepo)
+
+	gameHandler := handlers.NewGameHandler(gameManager)
 
 	debugHandler := handlers.NewDebugHandler(cfg)
 
@@ -63,6 +66,10 @@ func SetupRouter(session *gocql.Session, cfg *config.Config, logger *log.Logger)
 	authRouter.HandleFunc("/qr-mgmt/list_codes", qrCodeManagementHandler.GetAllQRCodes).Methods("GET")
 	authRouter.HandleFunc("/qr-mgmt/list_actions", qrCodeManagementHandler.GetAllQRActions).Methods("GET")
 
+	authRouter.HandleFunc("/game/create_room", gameHandler.CreateRoom).Methods("POST")
+	authRouter.HandleFunc("/game/get_rooms", gameHandler.GetRooms).Methods("GET")
+	authRouter.HandleFunc("/game/delete_room", gameHandler.DeleteRoom).Methods("POST")
+
 	authRouter.HandleFunc("/debug", debugHandler.AuthDebug).Methods("GET")
 
 	// health check endpoint
@@ -79,5 +86,5 @@ func SetupRouter(session *gocql.Session, cfg *config.Config, logger *log.Logger)
 		})
 	})
 
-	return router
+	return router, sessionService
 }

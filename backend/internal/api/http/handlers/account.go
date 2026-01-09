@@ -31,7 +31,7 @@ func (h *AccountHandler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondError(w, "invalid request format", http.StatusBadRequest)
+		respondError(w, "invalid request format - "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -70,14 +70,14 @@ func (h *AccountHandler) ChangePassword(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondError(w, "invalid request", http.StatusBadRequest)
+		respondError(w, "invalid request - "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	// convert to UUID
 	uuid, err := gocql.ParseUUID(userID)
 	if err != nil {
-		respondError(w, "invalid user ID", http.StatusBadRequest)
+		respondError(w, "invalid user ID - "+err.Error(), http.StatusBadRequest)
 		return
 	}
 

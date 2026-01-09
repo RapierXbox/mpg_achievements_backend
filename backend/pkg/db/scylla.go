@@ -15,7 +15,7 @@ func InitScyllaDB(host string, logger *log.Logger) (*gocql.Session, error) {
 	cluster.Consistency = gocql.One // only a single node needs to respond for now (maby change to Quorum)
 	cluster.Timeout = 5 * time.Second
 	cluster.ConnectTimeout = 5 * time.Second
-	cluster.NumConns = 2 // two parralel tcp connections
+	cluster.NumConns = 64
 	cluster.ReconnectInterval = 1 * time.Second
 	cluster.PoolConfig.HostSelectionPolicy = gocql.TokenAwareHostPolicy(gocql.RoundRobinHostPolicy()) // for a single node not really relevant
 

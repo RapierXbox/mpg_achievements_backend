@@ -20,8 +20,8 @@ func (r *UserQRScanRepository) CreateUserQRScan(user_qr_scan *models.UserQRScan)
 
 	m := make(map[string]interface{})
 	_, err := r.session.Query(query,
-		user_qr_scan.UserId,
-		user_qr_scan.QrCodeId,
+		user_qr_scan.UserID,
+		user_qr_scan.QrCodeID,
 		user_qr_scan.Count,
 	).MapScanCAS(m)
 
@@ -37,8 +37,8 @@ func (r *UserQRScanRepository) GetUserQrScanByID(user_id, qr_code_id gocql.UUID)
 	query := r.session.Query(`SELECT user_id, qr_code_id, count FROM qr.user_qr_scans WHERE user_id = ? AND qr_code_id = ? LIMIT 1`, user_id, qr_code_id).Consistency(gocql.LocalQuorum)
 
 	err := query.Scan(
-		&userQRScan.UserId,
-		&userQRScan.QrCodeId,
+		&userQRScan.UserID,
+		&userQRScan.QrCodeID,
 		&userQRScan.Count,
 	)
 
@@ -66,33 +66,33 @@ func (r *UserQRScanRepository) GetGlobalUsageCountByQRCodeId(qr_code_id gocql.UU
 	return totalCount, nil
 }
 
-func (r *UserQRScanRepository) UpdateCount(userId, qrCodeId gocql.UUID, newCount int) error {
+func (r *UserQRScanRepository) UpdateCount(userID, qrCodeID gocql.UUID, newCount int) error {
 	return r.session.Query(`UPDATE qr.user_qr_scans SET count = ? WHERE user_id = ? AND qr_code_id = ?`,
-		newCount, userId, qrCodeId,
+		newCount, userID, qrCodeID,
 	).Exec()
 }
 
-func (r *UserQRScanRepository) DeleteUserQRCodeScansByUserId(userId gocql.UUID) error {
+func (r *UserQRScanRepository) DeleteUserQRCodeScansByUserId(userID gocql.UUID) error {
 	query := `DELETE FROM qr.user_qr_scans WHERE user_id = ?`
-	return r.session.Query(query, userId).Exec()
+	return r.session.Query(query, userID).Exec()
 }
 
-func (r *UserQRScanRepository) DeleteUserQRCodeScansByQRCodeId(qrCodeId gocql.UUID) error {
+func (r *UserQRScanRepository) DeleteUserQRCodeScansByQRCodeId(qrCodeID gocql.UUID) error {
 	iter := r.session.Query(`
 		SELECT user_id, count
 		FROM qr.user_qr_scans
 		WHERE qr_code_id = ?
 		ALLOW FILTERING
-	`, qrCodeId).Iter()
+	`, qrCodeID).Iter()
 
-	var userId gocql.UUID
+	var userID gocql.UUID
 	var count int
 
-	for iter.Scan(&userId, &count) {
+	for iter.Scan(&userID, &count) {
 		if err := r.session.Query(`
 			DELETE FROM qr.user_qr_scans
 			WHERE user_id = ? AND qr_code_id = ?
-		`, userId, qrCodeId).Exec(); err != nil {
+		`, userID, qrCodeID).Exec(); err != nil {
 			return fmt.Errorf("delete failed: %w", err)
 		}
 	}

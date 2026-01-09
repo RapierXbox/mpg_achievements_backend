@@ -1,7 +1,10 @@
 package main
 
 import (
-	"backend/internal/api"
+	api_http "backend/internal/api/http"
+	"backend/internal/api/tcp"
+	"backend/internal/api/udp"
+	"backend/internal/game"
 	"backend/pkg/config"
 	"backend/pkg/db"
 
@@ -20,7 +23,7 @@ func main() {
 	cfg := config.Load()
 
 	// configure structured logging
-	logger := log.New(os.Stdout, "SERVER: ", log.Ldate|log.Ltime|log.Lshortfile)
+	logger := log.New(os.Stdout, "BACKEND: ", log.Ldate|log.Ltime|log.Lshortfile)
 	logger.Println("starting backend server")
 
 	// connect to db
@@ -37,8 +40,11 @@ func main() {
 	}
 	logger.Println("database migrations applied")
 
+	// initialize game manager
+	gameManager := game.NewManager()
+
 	// initialize http router with all api endpoints
-	router := api.SetupRouter(dbSession, cfg, logger)
+	router, sessionService := api_http.SetupRouter(dbSession, cfg, logger, gameManager)
 
 	// configure http server with timeouts
 	server := &http.Server{
@@ -47,6 +53,17 @@ func main() {
 		ReadTimeout:  15 * time.Second,  // prevent slowloris attacks (opening http connection but sending data slowly to exhaust connection pool)
 		WriteTimeout: 30 * time.Second,  // allow time for processing
 		IdleTimeout:  120 * time.Second, // close idle connections
+	}
+
+	// Start UDP and TCP servers
+	tcpServer := tcp.NewTCPServer(":9000", gameManager, cfg, sessionService)
+	if err := tcpServer.Start(); err != nil {
+		logger.Fatalf("failed to start TCP server: %v", err)
+	}
+
+	udpServer := udp.NewUDPServer(":9001", gameManager, cfg, sessionService)
+	if err := udpServer.Start(); err != nil {
+		logger.Fatalf("failed to start UDP server: %v", err)
 	}
 
 	// start server in separate goroutine
@@ -71,6 +88,14 @@ func main() {
 	// attempt graceful shutdown
 	if err := server.Shutdown(ctx); err != nil {
 		logger.Fatalf("server shutdown failed: %v", err)
+	}
+
+	if err := tcpServer.Shutdown(ctx); err != nil {
+		logger.Fatalf("TCP server shutdown failed: %v", err)
+	}
+
+	if err := udpServer.Shutdown(ctx); err != nil {
+		logger.Fatalf("UDP server shutdown failed: %v", err)
 	}
 
 	logger.Println("server exited gracefully")

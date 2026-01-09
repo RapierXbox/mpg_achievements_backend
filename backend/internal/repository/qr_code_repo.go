@@ -21,7 +21,7 @@ func (r *QRCodeRepository) CreateQRCode(qr_code *models.QRCode) error {
 	m := make(map[string]interface{})
 	_, err := r.session.Query(query,
 		qr_code.ID,
-		qr_code.ActionId,
+		qr_code.ActionID,
 		qr_code.QrCodeType,
 		qr_code.MaxUsages,
 		qr_code.ExpiresAt,
@@ -41,7 +41,7 @@ func (r *QRCodeRepository) GetQRCodeByID(id gocql.UUID) (*models.QRCode, error) 
 
 	err := query.Scan(
 		&code.ID,
-		&code.ActionId,
+		&code.ActionID,
 		&code.QrCodeType,
 		&code.MaxUsages,
 		&code.ExpiresAt,
@@ -69,7 +69,7 @@ func (r *QRCodeRepository) GetAllQRCodes(max_count int) ([]models.QRCode, error)
 	var expires_at time.Time
 
 	for iter.Scan(&id, &action_id, &qr_code_type, &max_usages, &expires_at) {
-		entries = append(entries, models.QRCode{ID: id, ActionId: action_id, QrCodeType: qr_code_type, MaxUsages: max_usages, ExpiresAt: expires_at})
+		entries = append(entries, models.QRCode{ID: id, ActionID: action_id, QrCodeType: qr_code_type, MaxUsages: max_usages, ExpiresAt: expires_at})
 	}
 
 	if err := iter.Close(); err != nil {
