@@ -168,6 +168,7 @@ def test_full_authentication_flow():
     assert login_response.status_code == 200
     
     access_token = login_response.json().get("access_token")
+    print(access_token)
     refresh_token_value = login_response.json().get("refresh_token")
     assert access_token is not None
     assert refresh_token_value is not None

@@ -118,21 +118,6 @@ func (r *Room) GetEntity(entityID gocql.UUID) (*Entity, bool) {
 	return entity, exists
 }
 
-func (r *Room) UpdateEntityPosition(entityID gocql.UUID, position, rotation utils.Vector3) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	entity, exists := r.Entities[entityID]
-	if !exists {
-		return errors.New("entity not found")
-	}
-
-	entity.Position = position
-	entity.Rotation = rotation
-	entity.LastUpdated = time.Now()
-	return nil
-}
-
 func (r *Room) AddSession(session *network.Session) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

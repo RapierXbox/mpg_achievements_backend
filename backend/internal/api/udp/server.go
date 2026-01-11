@@ -1,3 +1,6 @@
+//go:build linux
+// +build linux
+
 package udp
 
 import (
@@ -9,22 +12,26 @@ import (
 	"backend/pkg/utils"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"log"
 	"net"
 	"os"
 	"runtime"
 	"sync"
+	"syscall"
 	"time"
+	"unsafe"
 
 	"github.com/gocql/gocql"
 	"github.com/prometheus/client_golang/prometheus"
+	"golang.org/x/sys/unix"
 )
 
 type UDPServer struct {
-	conn          *net.UDPConn
+	socket        int
 	gameManager   *game.Manager
 	addr          string
-	addrToSession map[string]gocql.UUID
+	addrToSession map[string]sessionInfo
 	sessionToAddr map[gocql.UUID]*net.UDPAddr
 
 	packetChan chan *network.UDPPacket
@@ -38,6 +45,11 @@ type UDPServer struct {
 	cancel context.CancelFunc
 }
 
+type sessionInfo struct {
+	sessionID gocql.UUID
+	room      *game.Room // cache room pointer
+}
+
 func NewUDPServer(addr string, gameManager *game.Manager, cfg *config.Config, sessionService *service.SessionService) *UDPServer {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &UDPServer{
@@ -46,7 +58,7 @@ func NewUDPServer(addr string, gameManager *game.Manager, cfg *config.Config, se
 		cfg:            cfg,
 		sessionService: sessionService,
 		logger:         log.New(os.Stdout, "UDP SERVER: ", log.Ldate|log.Ltime|log.Lshortfile),
-		addrToSession:  make(map[string]gocql.UUID),
+		addrToSession:  make(map[string]sessionInfo),
 		sessionToAddr:  make(map[gocql.UUID]*net.UDPAddr),
 		packetChan:     make(chan *network.UDPPacket, 500), // 500 should be enough to handle some short bursts
 		ctx:            ctx,
@@ -55,22 +67,23 @@ func NewUDPServer(addr string, gameManager *game.Manager, cfg *config.Config, se
 }
 
 func (s *UDPServer) Start() error {
-	udpAddr, err := net.ResolveUDPAddr("udp", s.addr)
+	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, unix.IPPROTO_UDP)
 	if err != nil {
 		return err
 	}
 
-	conn, err := net.ListenUDP("udp", udpAddr)
-	if err != nil {
-		return err
+	localAddr := &unix.SockaddrInet4{
+		Port: 9001,
+		Addr: [4]byte{0, 0, 0, 0},
 	}
+	unix.Bind(fd, localAddr)
 
-	s.conn = conn
+	s.socket = fd
 
-	s.logger.Printf("UDP server listening on %s with %d workers", s.addr, runtime.NumCPU()*2)
+	s.logger.Printf("UDP server listening on %s with %d workers", s.addr, runtime.NumCPU()*4)
 
 	// start worker pool
-	for i := 0; i < runtime.NumCPU()*2; i++ {
+	for i := 0; i < runtime.NumCPU()*4; i++ {
 		go s.worker()
 	}
 
@@ -90,6 +103,15 @@ func (s *UDPServer) RemoveSession(sessionID gocql.UUID) {
 	}
 }
 
+// package level preallocation
+var packetPool = sync.Pool{
+	New: func() interface{} {
+		return &network.UDPPacket{
+			Payload: make([]byte, 0, 256),
+		}
+	},
+}
+
 func (s *UDPServer) worker() {
 	for {
 		select {
@@ -97,11 +119,50 @@ func (s *UDPServer) worker() {
 			return
 		case packet := <-s.packetChan:
 			s.handlePacket(packet)
+			packetPool.Put(packet) // return to pool after processing
 		}
 	}
 }
+
+func (s *UDPServer) receiveFromUDP(buffer []byte) (int, *net.UDPAddr, error) {
+	var iovec unix.Iovec
+	iovec.Base = &buffer[0]
+	iovec.SetLen(len(buffer))
+
+	var sockaddr unix.RawSockaddrInet4
+
+	msghdr := unix.Msghdr{
+		Name:    (*byte)(unsafe.Pointer(&sockaddr)),
+		Namelen: uint32(unsafe.Sizeof(sockaddr)),
+		Iov:     &iovec,
+		Iovlen:  1,
+	}
+
+	// call recvmsg
+	n, _, errno := syscall.Syscall(
+		unix.SYS_RECVMSG,
+		uintptr(s.socket),
+		uintptr(unsafe.Pointer(&msghdr)),
+		0, // flags
+	)
+
+	if errno != 0 {
+		return 0, nil, fmt.Errorf("recvmsg failed: %v", errno)
+	}
+
+	// parse the sockaddr to get the UDP address
+	port := uint16(sockaddr.Port)
+	port = (port>>8 | port<<8) // convert from network byte order
+	udpAddr := &net.UDPAddr{
+		IP:   net.IPv4(sockaddr.Addr[0], sockaddr.Addr[1], sockaddr.Addr[2], sockaddr.Addr[3]),
+		Port: int(port),
+	}
+
+	return int(n), udpAddr, nil
+}
+
 func (s *UDPServer) receiveLoop() {
-	buffer := make([]byte, 2048) // should be enough for our biggest packet
+	buffer := make([]byte, 256) // should be enough for our biggest packet (hello)
 
 	for {
 		select {
@@ -109,21 +170,27 @@ func (s *UDPServer) receiveLoop() {
 			s.logger.Println("UDP server shutting down receive loop")
 			return
 		default:
-			n, addr, err := s.conn.ReadFromUDP(buffer)
+			n, addr, err := s.receiveFromUDP(buffer)
 			if err != nil {
 				s.logger.Printf("UDP server failed to read data: %v", err)
 				udpPacketErrorsTotal.WithLabelValues("read", err.Error()).Inc()
 				continue
 			}
 
-			data := make([]byte, n)
-			copy(data, buffer[:n])
+			// use sync.Pool for packet allocation
+			packet := packetPool.Get().(*network.UDPPacket)
+			packet.Address = addr
+			if cap(packet.Payload) < n {
+				packet.Payload = make([]byte, n)
+			} else {
+				packet.Payload = packet.Payload[:n]
+			}
+			copy(packet.Payload, buffer[:n])
 
-			// non-blocking send to worker pool
 			select {
-			case s.packetChan <- &network.UDPPacket{Address: addr, Payload: data}:
+			case s.packetChan <- packet:
 			default:
-				// buffer full, drop packet
+				packetPool.Put(packet) // return to pool if dropped
 				udpPacketErrorsTotal.WithLabelValues("read", "buffer_full").Inc()
 			}
 		}
@@ -227,7 +294,7 @@ func (s *UDPServer) handleHello(addr *net.UDPAddr, payload []byte) {
 	s.mu.Lock()
 	// check if this is a new session
 	_, wasExisting := s.addrToSession[addrKey]
-	s.addrToSession[addrKey] = userID
+	s.addrToSession[addrKey] = sessionInfo{sessionID: userID, room: room}
 	s.sessionToAddr[userID] = addr
 	if !wasExisting {
 		udpActiveSessions.Inc()
@@ -239,7 +306,7 @@ func (s *UDPServer) handleHello(addr *net.UDPAddr, payload []byte) {
 
 func (s *UDPServer) handleEntityMove(addr *net.UDPAddr, payload []byte) {
 	s.mu.RLock()
-	sessionID, exists := s.addrToSession[addr.String()]
+	info, exists := s.addrToSession[addr.String()]
 	s.mu.RUnlock()
 
 	if !exists {
@@ -247,16 +314,11 @@ func (s *UDPServer) handleEntityMove(addr *net.UDPAddr, payload []byte) {
 		return
 	}
 
-	room, err := s.gameManager.GetRoomBySession(sessionID)
-	if err != nil {
-		s.logger.Printf("Room not found for session %s: %v", sessionID.String(), err)
-		udpPacketErrorsTotal.WithLabelValues("entity_move", "room_not_found").Inc()
-		return
-	}
+	room := info.room
 
-	session, exists := room.GetSession(sessionID)
+	session, exists := room.GetSession(info.sessionID)
 	if !exists {
-		room.GetLogger().Printf("Session not found for user %s", sessionID.String())
+		room.GetLogger().Printf("Session not found for user %s", info.sessionID.String())
 		udpPacketErrorsTotal.WithLabelValues("entity_move", "session_not_found").Inc()
 		return
 	}
@@ -277,20 +339,15 @@ func (s *UDPServer) handleEntityMove(addr *net.UDPAddr, payload []byte) {
 		return
 	}
 
-	timeSinceLastUpdate := time.Since(entity.LastUpdated)
+	timeSinceLastUpdate := time.Since(time.Unix(0, entity.LastUpdatedNanos.Load()))
 	if timeSinceLastUpdate < room.MinPacketInterval { // rate limiting
 		udpPacketsRateLimited.WithLabelValues("entity_move").Inc()
 		return
 	}
 
-	err = room.UpdateEntityPosition(msg.EntityID, msg.Position, msg.Rotation)
-	if err != nil {
-		room.GetLogger().Printf("Failed to update entity: %v", err)
-		udpPacketErrorsTotal.WithLabelValues("entity_move", "update_failed").Inc()
-		return
-	}
+	entity.UpdatePositon(msg.Position, msg.Rotation)
 
-	s.broadcastToRoom(room, msg, sessionID)
+	s.broadcastUDP(room, msg, info.sessionID)
 }
 
 func (s *UDPServer) handlePing(addr *net.UDPAddr, _ []byte) {
@@ -303,12 +360,16 @@ func (s *UDPServer) sendToAddr(addr *net.UDPAddr, msg protocol.Message) {
 	data, err := msg.Encode()
 	if err != nil {
 		s.logger.Printf("Failed to encode message: %v", err)
-
 		udpPacketSendErrorsTotal.WithLabelValues(getUDPMessageTypeLabel(msg.Type()), "encode_error").Inc()
 		return
 	}
 
-	_, err = s.conn.WriteToUDP(data, addr)
+	sockaddr := &unix.SockaddrInet4{
+		Port: addr.Port,
+	}
+	copy(sockaddr.Addr[:], addr.IP.To4())
+
+	_, err = unix.SendmsgN(s.socket, data, nil, sockaddr, 0)
 	if err != nil {
 		udpPacketSendErrorsTotal.WithLabelValues(getUDPMessageTypeLabel(msg.Type()), "write_error").Inc()
 		return
@@ -317,8 +378,7 @@ func (s *UDPServer) sendToAddr(addr *net.UDPAddr, msg protocol.Message) {
 	trackSentUDPPacket(msg.Type(), len(data))
 }
 
-func (s *UDPServer) broadcastToRoom(room *game.Room, msg protocol.Message, excludeID gocql.UUID) {
-	// pre-encode message once for broadcast
+func (s *UDPServer) broadcastUDP(room *game.Room, msg protocol.Message, excludeID gocql.UUID) {
 	data, err := msg.Encode()
 	if err != nil {
 		s.logger.Printf("Failed to encode message for broadcast: %v", err)
@@ -326,38 +386,78 @@ func (s *UDPServer) broadcastToRoom(room *game.Room, msg protocol.Message, exclu
 		return
 	}
 
-	sentCount := 0
+	// pre-allocate slice for addresses
+	addresses := make([]*net.UDPAddr, 0, 32)
 
 	room.GetMutex().RLock()
-	sessions := make([]*network.Session, 0, len(room.Sessions))
-	for _, session := range room.Sessions {
-		sessions = append(sessions, session)
-	}
-	room.GetMutex().RUnlock()
+	s.mu.RLock()
 
-	for _, session := range sessions {
-		if session.ID == excludeID {
+	for sessionID := range room.Sessions {
+		if sessionID == excludeID {
 			continue
 		}
-
-		s.mu.RLock()
-		udpAddr, exists := s.sessionToAddr[session.ID]
-		s.mu.RUnlock()
-
-		if exists && udpAddr != nil {
-			_, err := s.conn.WriteToUDP(data, udpAddr)
-			if err != nil {
-				udpPacketSendErrorsTotal.WithLabelValues(getUDPMessageTypeLabel(msg.Type()), "write_error").Inc()
-			} else {
-				sentCount++
-			}
+		if udpAddr, exists := s.sessionToAddr[sessionID]; exists && udpAddr != nil {
+			addresses = append(addresses, udpAddr)
 		}
 	}
 
-	// track metrics for all sent packets
-	for i := 0; i < sentCount; i++ {
-		trackSentUDPPacket(msg.Type(), len(data))
+	s.mu.RUnlock()
+	room.GetMutex().RUnlock()
+
+	// prepare message headers for all destinations
+	msgvec := make([]network.Mmsghdr, len(addresses))
+	iovecs := make([]unix.Iovec, len(addresses))
+	sockaddrs := make([]unix.RawSockaddrInet4, len(addresses))
+
+	for i, addr := range addresses {
+		// Set up the iovec (data buffer)
+		iovecs[i] = unix.Iovec{
+			Base: &data[0],
+		}
+		iovecs[i].SetLen(len(data))
+
+		// Set up the sockaddr
+		sockaddrs[i] = unix.RawSockaddrInet4{
+			Family: unix.AF_INET,
+		}
+		port := uint16(addr.Port)
+		sockaddrs[i].Port = (port>>8 | port<<8) // Convert to network byte order
+		copy(sockaddrs[i].Addr[:], addr.IP.To4())
+
+		// Set up the message header
+		msgvec[i] = network.Mmsghdr{
+			Msghdr: unix.Msghdr{
+				Name:    (*byte)(unsafe.Pointer(&sockaddrs[i])),
+				Namelen: uint32(unsafe.Sizeof(sockaddrs[i])),
+				Iov:     &iovecs[i],
+				Iovlen:  1,
+			},
+		}
 	}
+
+	// call sendmmsg directly via syscall
+	n, _, errno := syscall.Syscall6(
+		network.GetSendmmsgSyscall(),
+		uintptr(s.socket),
+		uintptr(unsafe.Pointer(&msgvec[0])),
+		uintptr(len(msgvec)),
+		0, // flags
+		0, 0,
+	)
+
+	if errno != 0 {
+		return
+	}
+
+	// batch metric tracking
+	typeLabel := getUDPMessageTypeLabel(msg.Type())
+	udpPacketsSentTotal.WithLabelValues(typeLabel).Add(float64(n))
+	packetSize := float64(len(data))
+	for i := 0; i < int(n); i++ {
+		udpPacketSentSizeBytes.WithLabelValues(typeLabel).Observe(packetSize)
+	}
+	udpBytesSentTotal.WithLabelValues(typeLabel).Add(packetSize * float64(n))
+
 }
 
 func (s *UDPServer) Shutdown(ctx context.Context) error {
@@ -369,8 +469,5 @@ func (s *UDPServer) Shutdown(ctx context.Context) error {
 	s.mu.RUnlock()
 	udpActiveSessions.Sub(float64(sessionCount))
 
-	if s.conn != nil {
-		return s.conn.Close()
-	}
-	return nil
+	return unix.Close(s.socket)
 }

@@ -74,8 +74,11 @@ func (s *AccountService) RegisterAccount(email, password string) (*models.Accoun
 func (s *AccountService) Authenticate(email, password string) (*models.Account, error) {
 	// retrieve account
 	account, err := s.account_repo.GetAccountByEmail(email)
-	if err != nil || account == nil {
+	if err != nil {
 		return nil, errors.New("invalid credentials - " + err.Error())
+	}
+	if account == nil {
+		return nil, errors.New("invalid credentials")
 	}
 
 	// verify password

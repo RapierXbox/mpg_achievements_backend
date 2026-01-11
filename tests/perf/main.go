@@ -26,7 +26,7 @@ import (
 
 // before running truncate the auth.accounts table because somethimes the delete of old account fails (PLEASE DONT DO THIS IN PROD!!!!!!!) [truncate wipes all user accounts]
 const (
-	NumRooms             = 100
+	NumRooms             = 10
 	NumSessionsPerRoom   = 100
 	NumEntitysPerSession = 50
 	PacketIntervalMs     = 51

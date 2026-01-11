@@ -18,7 +18,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 0,
+  "id": 2,
   "links": [],
   "panels": [
     {
@@ -263,7 +263,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum(rate(udp_packets_received_total[30s]))",
+          "expr": "sum(rate(udp_packet_received_size_bytes_sum[30s]))",
           "legendFormat": "RX",
           "range": true,
           "refId": "A"
@@ -274,7 +274,7 @@
             "uid": "PBFA97CFB590B2093"
           },
           "editorMode": "code",
-          "expr": "sum(rate(udp_packets_sent_total[30s]))",
+          "expr": "sum(rate(udp_packet_sent_size_bytes_sum[30s]))",
           "hide": false,
           "instant": false,
           "legendFormat": "TX",
@@ -566,7 +566,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "rate(udp_bytes_sent_total[30s])",
+          "expr": "rate(udp_packets_sent_total[30s])",
           "legendFormat": "{{type}}",
           "range": true,
           "refId": "A"
@@ -2083,5 +2083,5 @@
   "timezone": "browser",
   "title": "Dashboard",
   "uid": "adqtbfw",
-  "version": 10
+  "version": 1
 }

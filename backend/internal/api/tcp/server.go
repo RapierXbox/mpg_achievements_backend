@@ -1,3 +1,6 @@
+//go:build linux
+// +build linux
+
 package tcp
 
 import (
@@ -301,8 +304,8 @@ func (s *TCPServer) handleHello(conn net.Conn, payload []byte) (gocql.UUID, *gam
 		entitiesToSend = append(entitiesToSend, protocol.NewEntity{
 			EntityID:   entity.ID,
 			EntityType: entity.Type,
-			Position:   entity.Position,
-			Rotation:   entity.Rotation,
+			Position:   entity.Position.Load().(utils.Vector3),
+			Rotation:   entity.Rotation.Load().(utils.Vector3),
 			CustomData: entity.CustomData,
 		})
 	}
@@ -349,7 +352,7 @@ func (s *TCPServer) handleNewEntity(room *game.Room, sessionID gocql.UUID, paylo
 		msg.CustomData,
 	)
 
-	err := room.AddEntity(&summonedEntity)
+	err := room.AddEntity(summonedEntity)
 	if err != nil {
 		room.GetLogger().Printf("Error adding Entity: %s", err.Error())
 		tcpPacketErrorsTotal.WithLabelValues("new_entity", "add_entity_failed").Inc()
@@ -359,8 +362,8 @@ func (s *TCPServer) handleNewEntity(room *game.Room, sessionID gocql.UUID, paylo
 	newEntityMsg := &protocol.NewEntity{
 		EntityID:   summonedEntity.ID,
 		EntityType: summonedEntity.Type,
-		Position:   summonedEntity.Position,
-		Rotation:   summonedEntity.Rotation,
+		Position:   summonedEntity.Position.Load().(utils.Vector3),
+		Rotation:   summonedEntity.Rotation.Load().(utils.Vector3),
 		CustomData: summonedEntity.CustomData,
 	}
 
