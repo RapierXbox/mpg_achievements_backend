@@ -15,6 +15,8 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // main entry point
@@ -56,21 +58,40 @@ func main() {
 	}
 
 	// Start UDP and TCP servers
-	tcpServer := tcp.NewTCPServer(":9000", gameManager, cfg, sessionService)
-	if err := tcpServer.Start(); err != nil {
-		logger.Fatalf("failed to start TCP server: %v", err)
-	}
-
 	udpServer := udp.NewUDPServer(":9001", gameManager, cfg, sessionService)
 	if err := udpServer.Start(); err != nil {
 		logger.Fatalf("failed to start UDP server: %v", err)
 	}
 
+	tcpServer := tcp.NewTCPServer(":9000", gameManager, cfg, sessionService, udpServer)
+	if err := tcpServer.Start(); err != nil {
+		logger.Fatalf("failed to start TCP server: %v", err)
+	}
+
 	// start server in separate goroutine
 	go func() {
-		logger.Printf("server listening on %s", server.Addr)
+		logger.Printf("HTTP server listening on %s", server.Addr)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Fatalf("server failed: %v", err)
+			logger.Fatalf("HTTP server failed: %v", err)
+		}
+	}()
+
+	// create and start prometheus http server
+	metricsMux := http.NewServeMux()
+	metricsMux.Handle("/metrics", promhttp.Handler())
+
+	metricsServer := &http.Server{
+		Addr:         ":2112",
+		Handler:      metricsMux,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  30 * time.Second,
+	}
+
+	go func() {
+		logger.Println("prometheus metrics listening on :2112")
+		if err := metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Fatalf("metrics server failed: %v", err)
 		}
 	}()
 
@@ -87,7 +108,7 @@ func main() {
 
 	// attempt graceful shutdown
 	if err := server.Shutdown(ctx); err != nil {
-		logger.Fatalf("server shutdown failed: %v", err)
+		logger.Fatalf("HTTP server shutdown failed: %v", err)
 	}
 
 	if err := tcpServer.Shutdown(ctx); err != nil {
@@ -96,6 +117,10 @@ func main() {
 
 	if err := udpServer.Shutdown(ctx); err != nil {
 		logger.Fatalf("UDP server shutdown failed: %v", err)
+	}
+
+	if err := metricsServer.Shutdown(ctx); err != nil {
+		logger.Fatalf("Metrics server shutdown failed: %v", err)
 	}
 
 	logger.Println("server exited gracefully")

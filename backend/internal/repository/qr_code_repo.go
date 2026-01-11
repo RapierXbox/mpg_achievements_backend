@@ -31,6 +31,8 @@ func (r *QRCodeRepository) CreateQRCode(qr_code *models.QRCode) error {
 		return err
 	}
 
+	qrCodes.Inc() // track metric
+
 	return nil
 }
 
@@ -55,7 +57,13 @@ func (r *QRCodeRepository) GetQRCodeByID(id gocql.UUID) (*models.QRCode, error) 
 
 func (r *QRCodeRepository) DeleteQRCode(id gocql.UUID) error {
 	query := `DELETE FROM qr.qr_codes WHERE id = ?`
-	return r.session.Query(query, id).Exec()
+	if err := r.session.Query(query, id).Exec(); err != nil {
+		return err
+	}
+
+	qrCodes.Dec() // track metric
+
+	return nil
 }
 
 func (r *QRCodeRepository) GetAllQRCodes(max_count int) ([]models.QRCode, error) {

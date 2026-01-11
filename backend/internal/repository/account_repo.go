@@ -37,6 +37,9 @@ func (r *AccountRepository) CreateAccount(account *models.Account) error {
 	if !applied {
 		return ErrEmailExists // custom error for duplicate email
 	}
+
+	accounts.Inc() // track metric
+
 	return nil
 }
 
@@ -91,7 +94,13 @@ func (r *AccountRepository) UpdatePassword(userID gocql.UUID, newHash string) er
 
 func (r *AccountRepository) DeleteAccount(userID gocql.UUID) error {
 	query := `DELETE FROM auth.accounts WHERE id = ?`
-	return r.session.Query(query, userID).Exec()
+	if err := r.session.Query(query, userID).Exec(); err != nil {
+		return err
+	}
+
+	accounts.Dec() // track metric
+
+	return nil
 }
 
 // custom error for duplicate email

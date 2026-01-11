@@ -86,7 +86,13 @@ func (s *SessionService) RotateSession(userID, deviceID gocql.UUID, oldToken, ne
 	newHash := utils.HashToken(newToken, s.pepper)
 
 	// Update session in database
-	return s.repo.RotateSessionToken(userID, deviceID, newHash)
+	if err = s.repo.RotateSessionToken(userID, deviceID, newHash); err != nil {
+		return err
+	}
+
+	tokenRefreshes.Inc()
+
+	return nil
 }
 
 // DeleteSession removes a session from the database

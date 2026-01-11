@@ -106,12 +106,11 @@ func (s *QRService) GetActionJsonFromQRCodeId(qr_code_id, user_id gocql.UUID) (s
 	}
 
 	err = s.scan_repo.UpdateCount(user_id, qr_code_id, qr_scan.Count+1)
-
 	if err != nil {
 		return "", errors.New("failed to update usage count - " + err.Error())
 	}
-	return qr_action.ActionJson, nil
 
+	return qr_action.ActionJson, nil
 }
 
 func (s *QRService) DeleteQRCode(id gocql.UUID) error {
@@ -123,8 +122,7 @@ func (s *QRService) DeleteQRCode(id gocql.UUID) error {
 		return errors.New("this qr code does not exist")
 	}
 
-	err = s.scan_repo.DeleteUserQRCodeScansByQRCodeId(id)
-	if err != nil {
+	if err = s.scan_repo.DeleteUserQRCodeScansByQRCodeId(id); err != nil { // delete all scans
 		return errors.New("failed to delete associated user qr scans - " + err.Error())
 	}
 

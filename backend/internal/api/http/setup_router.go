@@ -44,6 +44,9 @@ func SetupRouter(session *gocql.Session, cfg *config.Config, logger *log.Logger,
 
 	debugHandler := handlers.NewDebugHandler(cfg)
 
+	// use metrics middleware for all handlers
+	router.Use(middleware.MetricsMiddleware)
+
 	// public routes
 	router.HandleFunc("/auth/register", accountHandler.Register).Methods("POST")
 	router.HandleFunc("/auth/login", authHandler.Login).Methods("POST")

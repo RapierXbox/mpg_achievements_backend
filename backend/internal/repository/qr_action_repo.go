@@ -27,6 +27,8 @@ func (r *QRActionRepository) CreateQRAction(qr_action *models.QRAction) error {
 		return err
 	}
 
+	qrActions.Inc() // track metric
+
 	return nil
 }
 
@@ -48,7 +50,13 @@ func (r *QRActionRepository) GetQRActionByID(id gocql.UUID) (*models.QRAction, e
 
 func (r *QRActionRepository) DeleteQRAction(id gocql.UUID) error {
 	query := `DELETE FROM qr.qr_actions WHERE id = ?`
-	return r.session.Query(query, id).Exec()
+	if err := r.session.Query(query, id).Exec(); err != nil {
+		return err
+	}
+
+	qrActions.Dec() // track metric
+
+	return nil
 }
 
 func (r *QRActionRepository) GetAllQRActions(max_count int) ([]models.QRAction, error) {

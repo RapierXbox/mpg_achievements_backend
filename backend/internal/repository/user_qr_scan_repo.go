@@ -28,6 +28,9 @@ func (r *UserQRScanRepository) CreateUserQRScan(user_qr_scan *models.UserQRScan)
 	if err != nil {
 		return err
 	}
+
+	qrScans.Inc() // track metric
+
 	return nil
 }
 
@@ -74,7 +77,13 @@ func (r *UserQRScanRepository) UpdateCount(userID, qrCodeID gocql.UUID, newCount
 
 func (r *UserQRScanRepository) DeleteUserQRCodeScansByUserId(userID gocql.UUID) error {
 	query := `DELETE FROM qr.user_qr_scans WHERE user_id = ?`
-	return r.session.Query(query, userID).Exec()
+	if err := r.session.Query(query, userID).Exec(); err != nil {
+		return err
+	}
+
+	qrScans.Dec() // track metric
+
+	return nil
 }
 
 func (r *UserQRScanRepository) DeleteUserQRCodeScansByQRCodeId(qrCodeID gocql.UUID) error {
@@ -95,6 +104,8 @@ func (r *UserQRScanRepository) DeleteUserQRCodeScansByQRCodeId(qrCodeID gocql.UU
 		`, userID, qrCodeID).Exec(); err != nil {
 			return fmt.Errorf("delete failed: %w", err)
 		}
+
+		qrScans.Dec() // track metric
 	}
 
 	return nil

@@ -564,7 +564,7 @@ func reportStats(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			log.Printf("stats: users=%d, logins=%d, rooms=%d, active=%d, errors=%d",
+			log.Printf("stats: users=%d, logins=%d, rooms=%d, active=%d, errors=%d", // there are no errors just happy mistakes!
 				stats.UsersCreated.Load(),
 				stats.UsersLoggedIn.Load(),
 				stats.RoomsCreated.Load(),

@@ -27,9 +27,10 @@ services:
       - SCYLLA_HOST=scylladb # docker dns hostname for scylladb container
       - PEPPER_SECRET=TEMP_CHANGEME_TEMP
       - JWT_SECRET=TEMP_CHANGEME_TEMP
-    restart: on-failure # only restart on crash -> exit code not 0
+    restart: unless-stopped
     expose:
       - "8080" # expose http to other containers (nginx)
+      - "2112" # expose metrics to other containers (prometheus)
     ports:
       - "9000:9000/tcp" # tcp game traffic
       - "9001:9001/udp" # udp game traffic
@@ -46,6 +47,40 @@ services:
     networks:
       - internal
       - public
+    restart: unless-stopped
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      - backend
+    networks:
+      - internal
+    expose:
+      - "9090"
+    restart: unless-stopped
+  grafana:
+    image: grafana/grafana
+    container_name: grafana
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/grafana.ini:/etc/grafana/grafana.ini:ro
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/provisioning/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - internal
+      - public
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
 
 networks:
   internal: # container to container networking
@@ -56,3 +91,5 @@ networks:
 volumes:
   scylla_data:
   scylla_logs:
+  prometheus-data:
+  grafana-data:

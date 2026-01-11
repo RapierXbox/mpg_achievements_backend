@@ -23,7 +23,7 @@ func (r *SessionRepository) CreateSession(session *models.PermanentSession) erro
 		(user_id, device_id, token_hash, created_at, last_used, expires_at) 
 		VALUES (?, ?, ?, ?, ?, ?)`
 
-	return r.session.Query(query,
+	err := r.session.Query(query,
 		session.UserID,
 		session.DeviceID,
 		session.TokenHash,
@@ -31,6 +31,13 @@ func (r *SessionRepository) CreateSession(session *models.PermanentSession) erro
 		session.LastUsed,
 		session.ExpiresAt,
 	).Exec()
+	if err != nil {
+		return err
+	}
+
+	sessions.Inc()
+
+	return nil
 }
 
 func (r *SessionRepository) GetSession(userID, deviceID gocql.UUID) (*models.PermanentSession, error) {
@@ -73,11 +80,33 @@ func (r *SessionRepository) RotateSessionToken(userID, deviceID gocql.UUID, newT
 func (r *SessionRepository) DeleteSession(userID, deviceID gocql.UUID) error {
 	query := `DELETE FROM auth.permanent_sessions 
 		WHERE user_id = ? AND device_id = ?`
-	return r.session.Query(query, userID, deviceID).Exec()
+	if err := r.session.Query(query, userID, deviceID).Exec(); err != nil {
+		return err
+	}
+
+	sessions.Dec() // track metric
+
+	return nil
 }
 
 func (r *SessionRepository) DeleteAllSessionsForUser(userID gocql.UUID) error {
-	query := `DELETE FROM auth.permanent_sessions 
+	var count int
+
+	countQuery := `SELECT COUNT(*) FROM auth.permanent_sessions 
 		WHERE user_id = ?`
-	return r.session.Query(query, userID).Exec()
+	if err := r.session.Query(countQuery, userID).Scan(&count); err != nil { // count is expensive in cassandra but this shouldnt matter here
+		return err
+	}
+
+	deleteQuery := `DELETE FROM auth.permanent_sessions 
+		WHERE user_id = ?`
+	if err := r.session.Query(deleteQuery, userID).Exec(); err != nil {
+		return err
+	}
+
+	if count > 0 {
+		sessions.Sub(float64(count)) // track exact number of removed sessions
+	}
+
+	return nil
 }

@@ -24,8 +24,7 @@ type Room struct {
 	Entities map[gocql.UUID]*Entity
 	Chunks   map[utils.Vector2I32]*Chunk
 
-	TCPBroadcast chan *protocol.Message
-	UDPBroadcast chan *protocol.Message
+	// for now removed the tcp and udp broadcast channels as we dont do any sending packets in our game loop
 
 	TickRate             int
 	MinPacketInterval    time.Duration
@@ -47,8 +46,6 @@ func NewRoom(id uint32, ownerID gocql.UUID, name string) *Room {
 		Sessions:             make(map[gocql.UUID]*network.Session),
 		Entities:             make(map[gocql.UUID]*Entity),
 		Chunks:               make(map[utils.Vector2I32]*Chunk),
-		TCPBroadcast:         make(chan *protocol.Message, 100),
-		UDPBroadcast:         make(chan *protocol.Message, 500),
 		TickRate:             10,
 		MinPacketInterval:    50 * time.Millisecond,
 		MaxEntitysPerSession: 50,
@@ -60,7 +57,6 @@ func NewRoom(id uint32, ownerID gocql.UUID, name string) *Room {
 
 func (r *Room) Start() {
 	go r.gameLoop()
-	go r.tcpBroadcaster()
 }
 
 func (r *Room) gameLoop() {
@@ -87,11 +83,14 @@ func (r *Room) AddEntity(entity *Entity) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	_, exists := r.Entities[entity.ID]
+	_, exists := r.Entities[entity.ID] // check if entity already exists
 	if exists {
 		return fmt.Errorf("Entity with id (%s) already exists", entity.ID.String())
 	}
-	r.Entities[entity.ID] = entity
+
+	gameEntities.Inc()
+
+	r.Entities[entity.ID] = entity // add entity
 	return nil
 }
 
@@ -100,13 +99,14 @@ func (r *Room) RemoveEntity(entityID gocql.UUID) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	_, exists := r.Entities[entityID]
+	_, exists := r.Entities[entityID] // check if entity exists
 	if !exists {
 		return errors.New("entity not found")
 	}
 
-	delete(r.Entities, entityID)
+	gameEntities.Dec()
 
+	delete(r.Entities, entityID) // remove it
 	return nil
 }
 
@@ -116,6 +116,21 @@ func (r *Room) GetEntity(entityID gocql.UUID) (*Entity, bool) {
 
 	entity, exists := r.Entities[entityID]
 	return entity, exists
+}
+
+func (r *Room) UpdateEntityPosition(entityID gocql.UUID, position, rotation utils.Vector3) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	entity, exists := r.Entities[entityID]
+	if !exists {
+		return errors.New("entity not found")
+	}
+
+	entity.Position = position
+	entity.Rotation = rotation
+	entity.LastUpdated = time.Now()
+	return nil
 }
 
 func (r *Room) AddSession(session *network.Session) error {
@@ -158,17 +173,23 @@ func (r *Room) GetSession(sessionID gocql.UUID) (*network.Session, bool) {
 	return session, exists
 }
 
+func (r *Room) SetChunk(pos utils.Vector2I32, chunk *Chunk) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	gameCachedChunks.Inc()
+
+	r.Chunks[pos] = chunk
+}
+
 func (r *Room) BroadcastTCP(msg protocol.Message) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	r.broadcastTCPUnsafe(msg)
-}
-
-func (r *Room) BroadcastUDP(msg protocol.Message) {
-	select {
-	case r.UDPBroadcast <- &msg:
-	default:
+	for _, session := range r.Sessions {
+		if session.TCPConn != nil {
+			r.SendTCPToSession(session, msg)
+		}
 	}
 }
 
@@ -182,38 +203,7 @@ func (r *Room) BroadcastTCPExcept(excludeSessionID gocql.UUID, msg protocol.Mess
 		}
 
 		if session.TCPConn != nil {
-			go r.SendTCPToSession(session, msg)
-		}
-	}
-}
-
-func (r *Room) broadcastTCPUnsafe(msg protocol.Message) {
-	for _, session := range r.Sessions {
-		if session.TCPConn != nil {
-			go r.SendTCPToSession(session, msg)
-		}
-	}
-}
-
-func (r *Room) tcpBroadcaster() {
-	for {
-		select {
-		case msgPtr := <-r.TCPBroadcast:
-			if msgPtr == nil {
-				continue
-			}
-			msg := *msgPtr
-
-			r.mu.RLock()
-			for _, session := range r.Sessions {
-				if session.TCPConn != nil {
-					go r.SendTCPToSession(session, msg)
-				}
-			}
-			r.mu.RUnlock()
-
-		case <-r.ctx.Done():
-			return
+			r.SendTCPToSession(session, msg)
 		}
 	}
 }
@@ -238,6 +228,4 @@ func (r *Room) GetMutex() *sync.RWMutex {
 
 func (r *Room) Shutdown() {
 	r.cancel()
-	close(r.TCPBroadcast)
-	close(r.UDPBroadcast)
 }
