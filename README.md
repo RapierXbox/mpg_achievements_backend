@@ -75,12 +75,10 @@ All messages follow this binary structure:
 | Field | Size | Description |
 |-------|------|-------------|
 | Magic Bytes | 3 bytes | Protocol identifier: `"MPG"` |
-| Message Type | 1 byte | Message category/command |
+| Message Type | 1 byte | Message command |
 | Message Length | 4 bytes | Payload size in bytes |
 
 For a complete list of message types, see `messages.go`.
-
-Here's a more concise version:
 
 ## Testing
 
